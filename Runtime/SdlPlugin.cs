@@ -86,20 +86,14 @@ public sealed class SdlPlugin : IPlugin
             Logger.Info("SdlPlugin: Non-Vulkan backend - Vulkan renderer initialization skipped.");
         }
 
-        // Eagerly initialize the Renderer during Startup so the base render graph
-        // (including the "main_pass" node) exists before other plugins' Startup systems
-        // try to add edges referencing it (e.g. VulkanWebViewPlugin, VulkanImGuiPlugin).
-        app.AddSystem(Stage.Startup, new SystemDescriptor(world =>
-            {
-                if (world.TryGetResource<Renderer>(out var r) && r.Context.IsInitialized)
-                    r.Initialize(world);
-            }, "SdlPlugin.Startup")
-            .MainThreadOnly()
-            .Write<Renderer>());
+        // Build the base render graph now so "main_pass" exists before any Stage.Startup
+        // system tries to attach nodes/edges to it.
+        if (renderer.Context.IsInitialized)
+            renderer.Initialize(app.World);
 
-        // Run Vulkan renderer after other Render stage systems.
-        // Also resolves debounced resize when the quiet period has elapsed.
-        app.AddSystem(Stage.Render, new SystemDescriptor(world =>
+        // GPU submission runs in Stage.Last so it executes after every Stage.Render system
+        // has emitted ImGui UI / per-frame data. Also resolves debounced resize.
+        app.AddSystem(Stage.Last, new SystemDescriptor(world =>
             {
                 if (!world.TryGetResource<Renderer>(out var r) || !r.Context.IsInitialized)
                     return;
